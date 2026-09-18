@@ -1,0 +1,11 @@
+node_modules/
+*.log
+
+# Paikallisten selain- ja ulkoasutestien kuvat
+*-smoke.png
+ipad-current-check.png
+card-fit-gallery.png
+
+# Sääntöjen lähde- ja tekstinpurkutyöaineisto
+data/
+rules.txt

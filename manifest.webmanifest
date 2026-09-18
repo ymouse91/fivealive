@@ -1,0 +1,18 @@
+{
+  "name": "5Alive",
+  "short_name": "5Alive",
+  "description": "Paikallinen 5Alive-korttipeli 2-6 pelaajalle.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#141414",
+  "theme_color": "#141414",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

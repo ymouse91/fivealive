@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="fi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#141414">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="5Alive">
+    <title>5Alive</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="table-panel" aria-label="Pelipöytä">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">5Alive</p>
+            <h1 id="turnTitle">Uusi peli</h1>
+          </div>
+          <div class="toolbar">
+            <button class="icon-button" id="newGameButton" title="Uusi peli" type="button">↻</button>
+            <button class="ghost-button" id="helpButton" type="button">Säännöt</button>
+          </div>
+        </header>
+
+        <div class="score-strip" id="playersBoard"></div>
+
+        <section class="center-board">
+          <div class="pile draw-pile">
+            <span>Nostopakka</span>
+            <strong id="drawCount">0</strong>
+          </div>
+          <div class="total-orb" aria-live="polite">
+            <span>Kokonaissumma</span>
+            <strong id="runningTotal">0</strong>
+          </div>
+          <div class="pile discard-pile">
+            <span>Poistopakka</span>
+            <div id="discardCard"></div>
+          </div>
+        </section>
+
+        <section class="status-row">
+          <div class="status-box">
+            <span>Suunta</span>
+            <strong id="directionLabel">Myötäpäivään</strong>
+          </div>
+          <div class="status-box">
+            <span>Vuoro</span>
+            <strong id="currentPlayerLabel">-</strong>
+          </div>
+          <button class="danger-button" id="takeLifeButton" type="button">En voi pelata</button>
+        </section>
+
+        <section class="hand-panel">
+          <div class="hand-heading">
+            <h2>Käsi</h2>
+            <p id="handHint">Valitse kortti vuorossa olevalle pelaajalle.</p>
+          </div>
+          <div class="hand" id="hand"></div>
+        </section>
+      </section>
+
+      <aside class="side-panel" aria-label="Peliloki ja asetukset">
+        <section class="compact-section">
+          <h2>Pelin tila</h2>
+          <p id="stateText">Valitse pelaajamäärä ja aloita.</p>
+        </section>
+        <section class="compact-section">
+          <h2>Loki</h2>
+          <div class="log" id="log"></div>
+        </section>
+      </aside>
+    </main>
+
+    <dialog id="setupDialog" class="dialog">
+      <form method="dialog" class="dialog-card" id="setupForm">
+        <h2>Uusi 5Alive-peli</h2>
+        <label>
+          Pelaajia
+          <select id="playerCount">
+            <option>2</option>
+            <option>3</option>
+            <option selected>4</option>
+            <option>5</option>
+            <option>6</option>
+          </select>
+        </label>
+        <div id="nameFields" class="name-fields"></div>
+        <button class="primary-button" value="start" type="submit">Aloita peli</button>
+      </form>
+    </dialog>
+
+    <dialog id="rulesDialog" class="dialog">
+      <form method="dialog" class="dialog-card rules-card">
+        <h2>Pikasäännöt</h2>
+        <p>Pelaa kortti niin, ettei kokonaissumma ylitä 21:tä. Jos et voi pelata, menetät yhden elämän ja summa nollautuu.</p>
+        <p>Villit kortit: Nosta 1/2 antaa muille kortteja, Jätän väliin siirtää vuoron, Käännös vaihtaa suunnan, Ohitus ohittaa seuraavan, =21/=10/=0 asettaa summan, Uusi jako jakaa käsikortit uudelleen ja Pommi pakottaa muut poistamaan 0-kortin tai menettämään elämän.</p>
+        <p>Jos pelaat viimeisen korttisi, muut pelaajat menettävät elämän ja uusi jako alkaa. Viimeinen pelaaja, jolla on elämää jäljellä, voittaa.</p>
+        <button class="primary-button" value="close">Selvä</button>
+      </form>
+    </dialog>
+
+    <dialog id="turnDialog" class="dialog turn-dialog">
+      <form method="dialog" class="dialog-card turn-card" id="turnForm">
+        <p class="eyebrow">Ojennetaan seuraavalle pelaajalle</p>
+        <h2 id="turnDialogTitle">Seuraava vuoro</h2>
+        <p id="turnDialogReason"></p>
+        <div class="turn-summary">
+          <div>
+            <span>Kokonaissumma</span>
+            <strong id="turnDialogTotal">0</strong>
+          </div>
+          <div>
+            <span>Poistopakan päällimmäinen</span>
+            <strong id="turnDialogDiscard">-</strong>
+          </div>
+          <div>
+            <span>Suunta</span>
+            <strong id="turnDialogDirection">Myötäpäivään</strong>
+          </div>
+        </div>
+        <p class="privacy-note">Kädet ovat piilossa, kunnes vuorossa oleva pelaaja painaa aloitusta.</p>
+        <button class="primary-button" value="start-turn" type="submit">Aloita vuoro</button>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js");
+        });
+      }
+    </script>
+  </body>
+</html>

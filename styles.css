@@ -157,6 +157,7 @@ h2 {
 .primary-button {
   background: var(--yellow);
   color: #141414;
+  transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
 .score-strip {
@@ -176,6 +177,7 @@ h2 {
   border: 1px solid var(--line);
   border-left: 0.25rem solid var(--blue);
   background: rgba(255, 255, 255, 0.055);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .player-tile.active {
@@ -385,11 +387,18 @@ h2 {
 
 .card-button {
   min-height: 7.4rem;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 
 .card-button:disabled {
   cursor: not-allowed;
-  opacity: 0.42;
+  opacity: 0.5;
+  filter: grayscale(0.3);
+}
+
+.card-button:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
 }
 
 .card-type {
@@ -488,6 +497,48 @@ h2 {
 .log-entry:first-child {
   border-color: rgba(247, 208, 70, 0.46);
   background: rgba(247, 208, 70, 0.11);
+  animation: slide-down 0.3s ease-out;
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .player-tile:hover {
+    border-color: var(--blue);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .player-tile.active:hover {
+    border-color: var(--yellow);
+    background: rgba(247, 208, 70, 0.2);
+  }
+
+  .card-button:not(:disabled):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .primary-button:hover {
+    background: #f0c830;
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-button,
+  .player-tile,
+  .primary-button {
+    transition: none;
+  }
+
+  .log-entry:first-child {
+    animation: none;
+  }
 }
 
 .log-entry span {

@@ -22,4 +22,5 @@ Sen jälkeen peli avautuu osoitteessa http://localhost:8877/.
 
 Selain- ja PWA-testit käyttävät Playwrightia. Projektissa ovat testit
 pelin perustoiminnoille, korttien tekstien mahtumiselle, iPad-asettelulle,
-Käännös-kortin vuorojärjestykselle ja offline-käytölle.
+Käännös-kortin vuorojärjestykselle, pelin tallennukselle, reunatapauksille
+ja offline-käytölle.

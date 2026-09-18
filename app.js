@@ -11,6 +11,9 @@ const CARD_TEXT = {
   bomb: ["Pommi", "BOMB", "0 tai elämä"]
 };
 
+const GAME_STORAGE_KEY = "fivealive-saved-game-v1";
+const GAME_STORAGE_VERSION = 1;
+
 const state = {
   players: [],
   drawPile: [],
@@ -94,6 +97,109 @@ function buildNameFields() {
     input.value = `Pelaaja ${i + 1}`;
     label.append(input);
     els.nameFields.append(label);
+  }
+}
+
+function normalizeCard(card) {
+  if (!card || typeof card !== "object" || typeof card.id !== "string") return null;
+  if (card.type === "number" && Number.isInteger(card.value) && card.value >= 0 && card.value <= 10) {
+    return { type: "number", value: card.value, id: card.id };
+  }
+  if (card.type === "wild" && Object.prototype.hasOwnProperty.call(CARD_TEXT, card.kind)) {
+    return { type: "wild", kind: card.kind, id: card.id };
+  }
+  return null;
+}
+
+function normalizeCardList(cards) {
+  if (!Array.isArray(cards)) return null;
+  const normalized = cards.map(normalizeCard);
+  return normalized.every(Boolean) ? normalized : null;
+}
+
+function restoreGame() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(GAME_STORAGE_KEY));
+    if (saved?.version !== GAME_STORAGE_VERSION || !saved.state) return false;
+
+    const stored = saved.state;
+    if (!Array.isArray(stored.players) || stored.players.length < 2 || stored.players.length > 6) return false;
+
+    const players = stored.players.map((player) => {
+      const hand = normalizeCardList(player?.hand);
+      if (!hand || typeof player?.name !== "string" || !Number.isInteger(player.lives)) return null;
+      return {
+        name: player.name.slice(0, 18) || "Pelaaja",
+        lives: Math.min(5, Math.max(0, player.lives)),
+        hand,
+        eliminated: Boolean(player.eliminated)
+      };
+    });
+    const drawPile = normalizeCardList(stored.drawPile);
+    const discardPile = normalizeCardList(stored.discardPile);
+    const currentIndex = Number(stored.currentIndex);
+    const runningTotal = Number(stored.runningTotal);
+    const direction = Number(stored.direction);
+    const gameOver = Boolean(stored.gameOver);
+    const activePlayers = players.filter((player) => player && !player.eliminated).length;
+    if (
+      players.some((player) => !player)
+      || !drawPile
+      || !discardPile
+      || !Number.isInteger(currentIndex)
+      || currentIndex < 0
+      || currentIndex >= players.length
+      || !Number.isFinite(runningTotal)
+      || runningTotal < 0
+      || runningTotal > 21
+      || ![1, -1].includes(direction)
+      || (gameOver ? activePlayers !== 1 : activePlayers < 2)
+    ) {
+      return false;
+    }
+
+    Object.assign(state, {
+      players,
+      drawPile,
+      discardPile,
+      runningTotal,
+      currentIndex,
+      direction,
+      log: Array.isArray(stored.log)
+        ? stored.log.filter((entry) => typeof entry === "string").slice(0, 50)
+        : [],
+      gameOver,
+      turnLocked: true,
+      turnNotice: null
+    });
+
+    if (!state.gameOver && currentPlayer().eliminated) {
+      state.currentIndex = nextActiveIndex(state.currentIndex, state.direction);
+    }
+    if (!state.gameOver) {
+      state.turnNotice = {
+        playerName: currentPlayer().name,
+        reason: `Tallennettu peli palautettiin. ${currentPlayer().name} jatkaa vuoroaan.`,
+        total: state.runningTotal,
+        discard: labelFor(state.discardPile.at(-1)),
+        direction: state.direction === 1 ? "Myötäpäivään" : "Vastapäivään"
+      };
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function saveGame() {
+  if (state.players.length < 2) return;
+  try {
+    localStorage.setItem(GAME_STORAGE_KEY, JSON.stringify({
+      version: GAME_STORAGE_VERSION,
+      state
+    }));
+  } catch {
+    // Peli jatkuu muistissa, vaikka selaimen tallennustila ei olisi käytettävissä.
   }
 }
 
@@ -185,7 +291,10 @@ function finishCardPlay(player, card, stepOverride, wasLastCard) {
     completeHand(player);
     return;
   }
-  if (checkWinner()) return;
+  if (checkWinner()) {
+    render();
+    return;
+  }
   const previousIndex = state.currentIndex;
   const turnMove = advanceTurn(stepOverride);
   if (state.currentIndex !== previousIndex) {
@@ -521,6 +630,7 @@ function render() {
   els.log.innerHTML = state.log
     .map((entry, index) => `<article class="log-entry"><span>${index === 0 ? "Uusin" : index + 1}</span><p>${escapeHtml(entry)}</p></article>`)
     .join("");
+  saveGame();
 }
 
 els.playerCount.addEventListener("change", buildNameFields);
@@ -544,4 +654,9 @@ els.newGameButton.addEventListener("click", () => {
 els.helpButton.addEventListener("click", () => els.rulesDialog.showModal());
 
 buildNameFields();
-els.setupDialog.showModal();
+if (restoreGame()) {
+  render();
+  window.setTimeout(showTurnDialog, 0);
+} else {
+  els.setupDialog.showModal();
+}

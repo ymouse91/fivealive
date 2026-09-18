@@ -1,4 +1,4 @@
-const CACHE_NAME = "fivealive-v1";
+const CACHE_NAME = "fivealive-v2";
 const APP_SHELL = [
   "./",
   "./index.html",

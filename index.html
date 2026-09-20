@@ -129,6 +129,18 @@
       </form>
     </dialog>
 
+    <dialog id="winnerDialog" class="dialog winner-dialog">
+      <form method="dialog" class="dialog-card winner-card">
+        <p class="eyebrow">Peli päättyi</p>
+        <h2 id="winnerDialogTitle">Voittaja</h2>
+        <p id="winnerDialogSummary"></p>
+        <div class="dialog-actions">
+          <button class="ghost-button" value="close" type="submit">Katso pelipöytää</button>
+          <button class="primary-button" id="winnerNewGameButton" type="button">Uusi peli</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="app.js"></script>
     <script>
       if ("serviceWorker" in navigator) {

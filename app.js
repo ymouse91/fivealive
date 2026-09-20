@@ -14,6 +14,26 @@ const CARD_TEXT = {
 const GAME_STORAGE_KEY = "fivealive-saved-game-v1";
 const GAME_STORAGE_VERSION = 1;
 
+function syncViewportHeight() {
+  const height = window.visualViewport?.height || window.innerHeight;
+  document.documentElement.style.setProperty("--app-height", `${Math.floor(height)}px`);
+}
+
+function refreshViewportHeight() {
+  syncViewportHeight();
+  window.requestAnimationFrame(syncViewportHeight);
+  window.setTimeout(syncViewportHeight, 250);
+}
+
+window.addEventListener("pageshow", refreshViewportHeight);
+window.addEventListener("orientationchange", refreshViewportHeight);
+window.addEventListener("resize", syncViewportHeight);
+window.visualViewport?.addEventListener("resize", syncViewportHeight);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshViewportHeight();
+});
+refreshViewportHeight();
+
 const state = {
   players: [],
   drawPile: [],
@@ -53,7 +73,11 @@ const els = {
   turnDialogReason: document.querySelector("#turnDialogReason"),
   turnDialogTotal: document.querySelector("#turnDialogTotal"),
   turnDialogDiscard: document.querySelector("#turnDialogDiscard"),
-  turnDialogDirection: document.querySelector("#turnDialogDirection")
+  turnDialogDirection: document.querySelector("#turnDialogDirection"),
+  winnerDialog: document.querySelector("#winnerDialog"),
+  winnerDialogTitle: document.querySelector("#winnerDialogTitle"),
+  winnerDialogSummary: document.querySelector("#winnerDialogSummary"),
+  winnerNewGameButton: document.querySelector("#winnerNewGameButton")
 };
 
 function makeDeck() {
@@ -204,6 +228,7 @@ function saveGame() {
 }
 
 function startGame(names) {
+  if (els.winnerDialog.open) els.winnerDialog.close();
   Object.assign(state, {
     players: names.map((name) => ({ name, lives: 5, hand: [], eliminated: false })),
     drawPile: makeDeck(),
@@ -282,11 +307,11 @@ function playCard(cardId) {
     return;
   }
 
-  const stepOverride = applyWild(card, player);
-  finishCardPlay(player, card, stepOverride, wasLastCard);
+  const effect = applyWild(card, player);
+  finishCardPlay(player, card, effect.steps, wasLastCard, effect.detail);
 }
 
-function finishCardPlay(player, card, stepOverride, wasLastCard) {
+function finishCardPlay(player, card, stepOverride, wasLastCard, effectDetail = "") {
   if (wasLastCard) {
     completeHand(player);
     return;
@@ -298,7 +323,7 @@ function finishCardPlay(player, card, stepOverride, wasLastCard) {
   const previousIndex = state.currentIndex;
   const turnMove = advanceTurn(stepOverride);
   if (state.currentIndex !== previousIndex) {
-    lockTurn(turnReason(player, card, turnMove));
+    lockTurn(turnReason(player, card, turnMove, effectDetail));
   } else {
     render();
   }
@@ -307,49 +332,62 @@ function finishCardPlay(player, card, stepOverride, wasLastCard) {
 function applyWild(card, player) {
   switch (card.kind) {
     case "draw1":
-      drawForOthers(player, 1);
-      return 1;
+      return { steps: 1, detail: drawForOthers(player, 1) };
     case "draw2":
-      drawForOthers(player, 2);
-      return 1;
+      return { steps: 1, detail: drawForOthers(player, 2) };
     case "pass":
-      return 1;
+      return { steps: 1, detail: "Vuoro siirtyi eteenpäin ja kokonaissumma säilyi ennallaan." };
     case "reverse":
       state.direction *= -1;
-      return alivePlayers().length === 2 ? 0 : 1;
+      return {
+        steps: alivePlayers().length === 2 ? 0 : 1,
+        detail: `Pelin suunta vaihtui ${state.direction === 1 ? "myötäpäivään" : "vastapäivään"}.`
+      };
     case "skip":
-      return alivePlayers().length === 2 ? 0 : 2;
+      return { steps: alivePlayers().length === 2 ? 0 : 2, detail: "" };
     case "eq21":
       state.runningTotal = 21;
-      return 1;
+      return { steps: 1, detail: "Kokonaissummaksi asetettiin 21." };
     case "eq10":
       state.runningTotal = 10;
-      return 1;
+      return { steps: 1, detail: "Kokonaissummaksi asetettiin 10." };
     case "eq0":
       state.runningTotal = 0;
-      return 1;
+      return { steps: 1, detail: "Kokonaissumma nollattiin." };
     case "redeal":
-      redealHands(player);
-      state.runningTotal = 0;
-      return 1;
+      {
+        const detail = redealHands(player);
+        state.runningTotal = 0;
+        return { steps: 1, detail };
+      }
     case "bomb":
-      resolveBomb(player);
-      state.runningTotal = 0;
-      return 1;
+      {
+        const detail = resolveBomb(player);
+        state.runningTotal = 0;
+        return { steps: 1, detail };
+      }
     default:
-      return 1;
+      return { steps: 1, detail: "" };
   }
 }
 
 function drawForOthers(sourcePlayer, amount) {
+  const outcomes = [];
   state.players.forEach((player) => {
     if (player === sourcePlayer || player.eliminated) return;
+    let drawn = 0;
     for (let i = 0; i < amount; i += 1) {
       const card = drawCard();
-      if (card) player.hand.push(card);
+      if (card) {
+        player.hand.push(card);
+        drawn += 1;
+      }
     }
+    outcomes.push(`${player.name} nosti ${drawn} kort${drawn === 1 ? "in" : "tia"}.`);
   });
-  pushLog(`Kaikki muut nostivat ${amount} kort${amount === 1 ? "in" : "tia"}.`);
+  const detail = outcomes.join(" ");
+  pushLog(detail);
+  return detail;
 }
 
 function redealHands(sourcePlayer) {
@@ -360,10 +398,14 @@ function redealHands(sourcePlayer) {
     state.players[dealIndex].hand.push(pool.pop());
     dealIndex = nextActiveIndex(dealIndex, 1);
   }
-  pushLog(`${sourcePlayer.name} sekoitti ja jakoi pelaajien käsikortit uudelleen.`);
+  const counts = active.map((player) => `${player.name}: ${player.hand.length}`).join(", ");
+  const detail = `Käsikortit sekoitettiin ja jaettiin uudelleen (${counts}). Kokonaissumma nollattiin.`;
+  pushLog(`${sourcePlayer.name} pelasi Uusi jako -kortin. ${detail}`);
+  return detail;
 }
 
 function resolveBomb(sourcePlayer) {
+  const outcomes = [];
   state.players.forEach((player) => {
     if (player === sourcePlayer || player.eliminated) return;
     const zeroIndex = player.hand.findIndex((card) => card.type === "number" && card.value === 0);
@@ -371,10 +413,17 @@ function resolveBomb(sourcePlayer) {
       const [zero] = player.hand.splice(zeroIndex, 1);
       state.discardPile.push(zero);
       pushLog(`${player.name} poisti 0-kortin pommiin.`);
+      outcomes.push(`${player.name} poisti 0-kortin.`);
     } else {
       loseLife(player, "ei pystynyt poistamaan 0-korttia pommiin");
+      outcomes.push(
+        player.eliminated
+          ? `${player.name} menetti elämän ja putosi pelistä.`
+          : `${player.name} menetti elämän (${player.lives} jäljellä).`
+      );
     }
   });
+  return `${outcomes.join(" ")} Kokonaissumma nollattiin.`;
 }
 
 function completeHand(winnerOfHand) {
@@ -483,8 +532,9 @@ function nextActiveIndex(fromIndex, direction) {
 function checkWinner() {
   const alive = alivePlayers();
   if (alive.length === 1) {
+    const wasGameOver = state.gameOver;
     state.gameOver = true;
-    pushLog(`${alive[0].name} voitti pelin!`);
+    if (!wasGameOver) pushLog(`${alive[0].name} voitti pelin!`);
     return true;
   }
   return false;
@@ -521,31 +571,34 @@ function showTurnDialog() {
   }
 }
 
+function showWinnerDialog() {
+  if (!state.gameOver || els.winnerDialog.open) return;
+  const winner = alivePlayers()[0];
+  if (!winner) return;
+  els.winnerDialogTitle.textContent = `${winner.name} voitti!`;
+  els.winnerDialogSummary.textContent = `${winner.name} jäi viimeiseksi pelaajaksi, jolla on elämää jäljellä.`;
+  els.winnerDialog.showModal();
+}
+
 function revealTurn() {
   state.turnLocked = false;
   state.turnNotice = null;
   render();
 }
 
-function turnReason(player, card, turnMove) {
+function turnReason(player, card, turnMove, effectDetail = "") {
   const cardName = labelFor(card);
   const skipped = turnMove.skipped.length ? ` ${turnMove.skipped.join(", ")} ohitettiin.` : "";
   if (card.type === "number") {
     return `${player.name} pelasi numerokortin ${cardName}. Kokonaissumma on nyt ${state.runningTotal}.${skipped}`;
   }
-  const wildReason = {
-    draw1: "Muut pelaajat nostivat yhden kortin.",
-    draw2: "Muut pelaajat nostivat kaksi korttia.",
-    pass: "Kortti siirsi vuoron eteenpäin muuttamatta summaa.",
-    reverse: "Pelin suunta vaihtui.",
-    skip: turnMove.skipped.length ? "Seuraavan pelaajan vuoro ohitettiin." : "Kahden pelaajan pelissä kortin pelannut saa uuden vuoron.",
-    eq21: "Kokonaissummaksi asetettiin 21.",
-    eq10: "Kokonaissummaksi asetettiin 10.",
-    eq0: "Kokonaissumma nollattiin.",
-    redeal: "Kaikkien käsikortit sekoitettiin ja jaettiin uudelleen.",
-    bomb: "Muiden piti poistaa 0-kortti tai menettää elämä."
-  };
-  return `${player.name} pelasi villin kortin ${cardName}. ${wildReason[card.kind]}${skipped}`;
+  if (card.kind === "skip") {
+    const skipDetail = turnMove.skipped.length
+      ? `${turnMove.skipped.join(", ")} ohitettiin.`
+      : `Kahden pelaajan pelissä ${player.name} saa uuden vuoron.`;
+    return `${player.name} pelasi erikoiskortin ${cardName}. ${skipDetail}`;
+  }
+  return `${player.name} pelasi erikoiskortin ${cardName}. ${effectDetail}${skipped}`;
 }
 
 function escapeHtml(text) {
@@ -631,6 +684,7 @@ function render() {
     .map((entry, index) => `<article class="log-entry"><span>${index === 0 ? "Uusin" : index + 1}</span><p>${escapeHtml(entry)}</p></article>`)
     .join("");
   saveGame();
+  if (state.gameOver) window.setTimeout(showWinnerDialog, 0);
 }
 
 els.playerCount.addEventListener("change", buildNameFields);
@@ -652,6 +706,11 @@ els.newGameButton.addEventListener("click", () => {
   els.setupDialog.showModal();
 });
 els.helpButton.addEventListener("click", () => els.rulesDialog.showModal());
+els.winnerNewGameButton.addEventListener("click", () => {
+  els.winnerDialog.close();
+  buildNameFields();
+  els.setupDialog.showModal();
+});
 
 buildNameFields();
 if (restoreGame()) {

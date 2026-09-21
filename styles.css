@@ -191,6 +191,7 @@ h2 {
 .player-number {
   display: grid;
   place-items: center;
+  position: relative;
   flex: 0 0 auto;
   width: 1.55rem;
   aspect-ratio: 1;
@@ -199,6 +200,25 @@ h2 {
   color: #141414;
   font-size: 0.88rem;
   font-weight: 950;
+}
+
+.player-tile.ai:not(.active) {
+  border-left-color: var(--violet);
+}
+
+.player-tile.ai .player-number::after {
+  content: "AI";
+  position: absolute;
+  right: -0.38rem;
+  bottom: -0.18rem;
+  padding: 0.04rem 0.16rem;
+  border: 1px solid #141414;
+  border-radius: 3px;
+  background: var(--violet);
+  color: #141414;
+  font-size: 0.42rem;
+  font-weight: 950;
+  line-height: 1;
 }
 
 .cards-count {
@@ -598,6 +618,39 @@ h2 {
   gap: 0.65rem;
 }
 
+.player-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.dialog-card label.ai-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.6rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.dialog-card .ai-toggle input {
+  width: 1.15rem;
+  min-height: 1.15rem;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--yellow);
+}
+
+.ai-toggle span {
+  font-size: 0.76rem;
+}
+
 .rules-card p {
   color: var(--muted);
   line-height: 1.45;
@@ -693,6 +746,16 @@ h2 {
 
   .side-panel {
     min-height: 16rem;
+  }
+}
+
+@media (min-width: 1101px) {
+  .total-orb {
+    width: auto;
+    height: 100%;
+    min-height: 0;
+    max-width: min(13rem, 82%);
+    max-height: 18rem;
   }
 }
 
@@ -830,46 +893,234 @@ h2 {
 }
 
 @media (max-width: 760px) {
+  body {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
   .app-shell {
-    padding: 0.55rem;
+    height: auto;
+    min-height: var(--app-height, 100dvh);
+    padding:
+      calc(0.55rem + env(safe-area-inset-top, 0px))
+      calc(0.55rem + env(safe-area-inset-right, 0px))
+      calc(0.55rem + env(safe-area-inset-bottom, 0px))
+      calc(0.55rem + env(safe-area-inset-left, 0px));
     gap: 0.55rem;
   }
 
   .table-panel {
-    grid-template-rows: auto auto auto auto minmax(11rem, 1fr);
+    grid-template-rows: auto auto auto auto auto;
     padding: 0.65rem;
     gap: 0.55rem;
   }
 
-  .center-board {
-    grid-template-columns: 1fr 1fr 1fr;
+  .side-panel {
+    min-height: 0;
+    padding: 0.75rem;
+  }
+
+  .topbar {
     gap: 0.5rem;
   }
 
+  h1 {
+    font-size: 1.45rem;
+  }
+
+  .toolbar {
+    gap: 0.35rem;
+  }
+
+  .icon-button,
+  .ghost-button,
+  .danger-button,
+  .primary-button {
+    min-height: 2.75rem;
+  }
+
+  .ghost-button {
+    padding-inline: 0.8rem;
+  }
+
+  .score-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+
+  .player-tile {
+    gap: 0.24rem;
+    min-height: 2.25rem;
+    padding: 0.25rem 0.32rem;
+  }
+
+  .player-number {
+    width: 1.45rem;
+    font-size: 0.8rem;
+  }
+
+  .life {
+    width: 0.58rem;
+  }
+
+  .cards-count {
+    gap: 0.12rem;
+    font-size: 0.72rem;
+  }
+
+  .cards-icon {
+    width: 0.5rem;
+  }
+
+  .center-board {
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.4rem;
+  }
+
   .pile {
-    min-height: 6.5rem;
+    min-height: 6rem;
+    padding: 0.35rem;
+  }
+
+  .pile > span,
+  .total-orb > span {
+    font-size: 0.62rem;
+  }
+
+  .draw-pile strong,
+  #discardCard .mini-card {
+    width: min(5rem, 72%);
+    border-width: 0.16rem;
+    font-size: 1.65rem;
+  }
+
+  #discardCard .mini-card {
+    padding: 0.3rem;
   }
 
   .total-orb {
-    width: min(8rem, 78%);
-    min-height: 7rem;
+    width: min(6rem, 90%);
+    min-height: 6rem;
+    border-width: 0.22rem;
+  }
+
+  .total-orb span {
+    font-size: 0;
+  }
+
+  .total-orb span::after {
+    content: "Summa";
+    font-size: 0.62rem;
+  }
+
+  .total-orb strong {
+    font-size: 3rem;
   }
 
   .status-row {
     grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+  }
+
+  .status-box {
+    min-height: 3.4rem;
+    padding: 0.4rem;
+  }
+
+  .status-box strong {
+    font-size: 0.92rem;
   }
 
   .danger-button {
     grid-column: 1 / -1;
   }
 
+  .hand-heading p {
+    display: none;
+  }
+
   .hand {
-    grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-rows: 6rem;
+    gap: 0.4rem;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .card-button {
-    min-height: 6.6rem;
-    padding: 0.42rem;
+    width: 100%;
+    height: 6rem;
+    min-height: 0;
+    aspect-ratio: auto;
+    padding: 0.35rem;
+    border-width: 0.12rem;
+  }
+
+  .card-desc,
+  .card-number .card-type {
+    display: none;
+  }
+
+  .card-number {
+    grid-template-rows: 1fr;
+  }
+
+  #discardCard .card-number {
+    grid-template-rows: 1fr;
+  }
+
+  .card-wild {
+    grid-template-rows: auto 1fr;
+  }
+
+  .card-type {
+    font-size: 0.48rem;
+    line-height: 1;
+  }
+
+  .card-reverse .card-type {
+    font-size: 0.43rem;
+    white-space: nowrap;
+  }
+
+  .card-redeal .card-type {
+    text-align: center;
+  }
+
+  .card-draw1 .card-type,
+  .card-draw2 .card-type {
+    font-size: 0;
+  }
+
+  .card-draw1 .card-type::after,
+  .card-draw2 .card-type::after {
+    content: "NOSTA";
+    font-size: 0.48rem;
+  }
+
+  .card-value,
+  .card-wild .card-value,
+  .card-bomb .card-value {
+    font-size: 1.45rem;
+  }
+
+  .card-pass .card-value {
+    font-size: 0.82rem;
+  }
+
+  .card-bomb .card-value {
+    font-size: 1.1rem;
+  }
+
+  .card-reverse .card-value,
+  .card-skip .card-value,
+  .card-redeal .card-value {
+    font-size: 1.8rem;
+  }
+
+  .log {
+    max-height: none;
+    overflow: visible;
   }
 
   .name-fields {
@@ -882,6 +1133,15 @@ h2 {
 
   .dialog-actions {
     flex-direction: column-reverse;
+  }
+
+  .dialog {
+    max-height: calc(var(--app-height, 100dvh) - 1rem);
+  }
+
+  .dialog-card {
+    max-height: calc(var(--app-height, 100dvh) - 1rem);
+    overflow-y: auto;
   }
 }
 

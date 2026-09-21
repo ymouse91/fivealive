@@ -13,6 +13,11 @@ const CARD_TEXT = {
 
 const GAME_STORAGE_KEY = "fivealive-saved-game-v1";
 const GAME_STORAGE_VERSION = 1;
+const AI_REVEAL_DELAY = 1800;
+const AI_PLAY_DELAY = 1200;
+
+let aiTimer = null;
+let aiTurnToken = 0;
 
 function syncViewportHeight() {
   const height = window.visualViewport?.height || window.innerHeight;
@@ -44,7 +49,8 @@ const state = {
   log: [],
   gameOver: false,
   turnLocked: true,
-  turnNotice: null
+  turnNotice: null,
+  pendingAiSummary: []
 };
 
 const els = {
@@ -113,14 +119,29 @@ function buildNameFields() {
   const count = Number(els.playerCount.value);
   els.nameFields.innerHTML = "";
   for (let i = 0; i < count; i += 1) {
+    const row = document.createElement("div");
+    row.className = "player-setup";
+
     const label = document.createElement("label");
+    label.className = "player-name-field";
     label.textContent = `Pelaaja ${i + 1}`;
     const input = document.createElement("input");
     input.name = `player-${i}`;
     input.maxLength = 18;
     input.value = `Pelaaja ${i + 1}`;
     label.append(input);
-    els.nameFields.append(label);
+
+    const aiLabel = document.createElement("label");
+    aiLabel.className = "ai-toggle";
+    const aiInput = document.createElement("input");
+    aiInput.type = "checkbox";
+    aiInput.name = `player-ai-${i}`;
+    const aiText = document.createElement("span");
+    aiText.textContent = "AI-pelaaja";
+    aiLabel.append(aiInput, aiText);
+
+    row.append(label, aiLabel);
+    els.nameFields.append(row);
   }
 }
 
@@ -154,6 +175,7 @@ function restoreGame() {
       if (!hand || typeof player?.name !== "string" || !Number.isInteger(player.lives)) return null;
       return {
         name: player.name.slice(0, 18) || "Pelaaja",
+        isAI: Boolean(player.isAI),
         lives: Math.min(5, Math.max(0, player.lives)),
         hand,
         eliminated: Boolean(player.eliminated)
@@ -194,7 +216,10 @@ function restoreGame() {
         : [],
       gameOver,
       turnLocked: true,
-      turnNotice: null
+      turnNotice: null,
+      pendingAiSummary: Array.isArray(stored.pendingAiSummary)
+        ? stored.pendingAiSummary.filter((entry) => typeof entry === "string").slice(-6)
+        : []
     });
 
     if (!state.gameOver && currentPlayer().eliminated) {
@@ -227,10 +252,20 @@ function saveGame() {
   }
 }
 
-function startGame(names) {
+function startGame(playerSettings) {
+  cancelAiTurn();
   if (els.winnerDialog.open) els.winnerDialog.close();
   Object.assign(state, {
-    players: names.map((name) => ({ name, lives: 5, hand: [], eliminated: false })),
+    players: playerSettings.map((setting, index) => {
+      const normalized = typeof setting === "string" ? { name: setting, isAI: false } : setting;
+      return {
+        name: normalized?.name?.trim() || `Pelaaja ${index + 1}`,
+        isAI: Boolean(normalized?.isAI),
+        lives: 5,
+        hand: [],
+        eliminated: false
+      };
+    }),
     drawPile: makeDeck(),
     discardPile: [],
     runningTotal: 0,
@@ -239,7 +274,8 @@ function startGame(names) {
     log: [],
     gameOver: false,
     turnLocked: true,
-    turnNotice: null
+    turnNotice: null,
+    pendingAiSummary: []
   });
 
   for (let i = 0; i < 10; i += 1) {
@@ -288,6 +324,121 @@ function hasPlayableCard(player) {
   return player.hand.some(isPlayable);
 }
 
+function cancelAiTurn() {
+  aiTurnToken += 1;
+  if (aiTimer !== null) {
+    window.clearTimeout(aiTimer);
+    aiTimer = null;
+  }
+}
+
+function aiThreat(player) {
+  if (!player || player.eliminated) return 0;
+  return Math.max(0, 5 - player.hand.length) * 5 + Math.max(0, 3 - player.lives) * 2;
+}
+
+function aiCardScore(card, player) {
+  const opponents = alivePlayers().filter((candidate) => candidate !== player);
+  const nextPlayer = state.players[nextActiveIndex(state.currentIndex, state.direction)];
+  const previousPlayer = state.players[nextActiveIndex(state.currentIndex, -state.direction)];
+  const greatestThreat = Math.max(0, ...opponents.map(aiThreat));
+  const remaining = player.hand.filter((candidate) => candidate.id !== card.id);
+  let score = 20;
+
+  if (player.hand.length === 1) return 1000;
+
+  if (card.type === "number") {
+    score += card.value * 2.2;
+    if (state.runningTotal + card.value === 21) score += 34;
+    if (card.value === 0) score -= 18;
+    if (card.value <= 2) score -= 3;
+    return score;
+  }
+
+  switch (card.kind) {
+    case "draw2":
+      return score + 18 + greatestThreat + opponents.length * 2;
+    case "draw1":
+      return score + 10 + greatestThreat * 0.75 + opponents.length;
+    case "pass":
+      return score + (state.runningTotal >= 17 ? 18 : 2);
+    case "skip":
+      if (opponents.length === 1) {
+        return score + (remaining.some(isPlayable) ? 24 : -12);
+      }
+      return score + aiThreat(nextPlayer) * 1.6;
+    case "reverse":
+      if (opponents.length === 1) {
+        return score + (remaining.some(isPlayable) ? 22 : -12);
+      }
+      return score + Math.max(0, aiThreat(previousPlayer) - aiThreat(nextPlayer)) * 1.8;
+    case "eq21":
+      return score + 30 + aiThreat(nextPlayer);
+    case "eq10":
+      return score + (state.runningTotal >= 17 ? 24 : state.runningTotal > 10 ? 10 : -4);
+    case "eq0":
+      return score + (state.runningTotal >= 18 ? 30 : state.runningTotal >= 14 ? 15 : -8);
+    case "redeal": {
+      const averageHand = alivePlayers().reduce((sum, candidate) => sum + candidate.hand.length, 0) / alivePlayers().length;
+      const handPenalty = player.hand.length <= 2 ? -55 : 0;
+      return score + (player.hand.length - averageHand) * 9 + (state.runningTotal >= 17 ? 9 : 0) + handPenalty;
+    }
+    case "bomb": {
+      const vulnerable = opponents.filter((candidate) => candidate.lives <= 2).length;
+      return score + 18 + opponents.length * 2 + vulnerable * 10 + (state.runningTotal >= 17 ? 8 : 0);
+    }
+    default:
+      return score;
+  }
+}
+
+function chooseAiCard(player) {
+  const playable = player.hand.filter(isPlayable);
+  if (playable.length === 0) return null;
+  return playable
+    .map((card) => ({ card, score: aiCardScore(card, player) + Math.random() * 2.5 }))
+    .sort((a, b) => b.score - a.score)[0].card;
+}
+
+function rememberAiAction(reason) {
+  state.pendingAiSummary.push(reason);
+  state.pendingAiSummary = state.pendingAiSummary.slice(-6);
+}
+
+function scheduleAiTurn(delay = AI_REVEAL_DELAY) {
+  cancelAiTurn();
+  const player = currentPlayer();
+  if (!player?.isAI || state.gameOver || els.setupDialog.open || els.rulesDialog.open || els.winnerDialog.open) return;
+  const token = aiTurnToken;
+
+  aiTimer = window.setTimeout(() => {
+    if (token !== aiTurnToken || currentPlayer() !== player || state.gameOver) return;
+    state.turnLocked = false;
+    state.turnNotice = null;
+    render();
+
+    aiTimer = window.setTimeout(() => {
+      aiTimer = null;
+      if (token !== aiTurnToken || currentPlayer() !== player || state.gameOver || state.turnLocked) return;
+      const card = chooseAiCard(player);
+      if (card) {
+        playCard(card.id);
+      } else {
+        takeLifeForCurrentPlayer();
+      }
+    }, AI_PLAY_DELAY);
+  }, delay);
+}
+
+function resumeCurrentTurn() {
+  if (state.gameOver || state.players.length < 2) return;
+  if (currentPlayer().isAI) {
+    scheduleAiTurn();
+  } else if (state.turnLocked) {
+    window.setTimeout(showTurnDialog, 0);
+  }
+}
+
 function playCard(cardId) {
   if (state.gameOver || state.turnLocked) return;
   const player = currentPlayer();
@@ -313,6 +464,9 @@ function playCard(cardId) {
 
 function finishCardPlay(player, card, stepOverride, wasLastCard, effectDetail = "") {
   if (wasLastCard) {
+    if (player.isAI) {
+      rememberAiAction(`${player.name} pelasi viimeisen korttinsa ${labelFor(card)} ja voitti jaon.`);
+    }
     completeHand(player);
     return;
   }
@@ -322,10 +476,13 @@ function finishCardPlay(player, card, stepOverride, wasLastCard, effectDetail = 
   }
   const previousIndex = state.currentIndex;
   const turnMove = advanceTurn(stepOverride);
+  const reason = turnReason(player, card, turnMove, effectDetail);
+  if (player.isAI) rememberAiAction(reason);
   if (state.currentIndex !== previousIndex) {
-    lockTurn(turnReason(player, card, turnMove, effectDetail));
+    lockTurn(reason);
   } else {
     render();
+    if (player.isAI) scheduleAiTurn(AI_PLAY_DELAY);
   }
 }
 
@@ -488,7 +645,9 @@ function takeLifeForCurrentPlayer() {
   state.runningTotal = 0;
   if (!checkWinner()) {
     advanceTurn(1);
-    lockTurn(`${player.name} menetti elämän, koska mikään kortti ei mahtunut alle 22:n. Summa nollattiin.`);
+    const reason = `${player.name} menetti elämän, koska mikään kortti ei mahtunut alle 22:n. Summa nollattiin.`;
+    if (player.isAI) rememberAiAction(reason);
+    lockTurn(reason);
   } else {
     render();
   }
@@ -547,20 +706,29 @@ function pushLog(text) {
 
 function lockTurn(reason) {
   if (state.gameOver) return;
+  cancelAiTurn();
   state.turnLocked = true;
+  const player = currentPlayer();
+  const noticeReason = !player.isAI && state.pendingAiSummary.length
+    ? state.pendingAiSummary.join(" ")
+    : reason;
   state.turnNotice = {
-    playerName: currentPlayer().name,
-    reason,
+    playerName: player.name,
+    reason: noticeReason,
     total: state.runningTotal,
     discard: labelFor(state.discardPile.at(-1)),
     direction: state.direction === 1 ? "Myötäpäivään" : "Vastapäivään"
   };
   render();
-  window.setTimeout(showTurnDialog, 0);
+  if (player.isAI) {
+    scheduleAiTurn();
+  } else {
+    window.setTimeout(showTurnDialog, 0);
+  }
 }
 
 function showTurnDialog() {
-  if (!state.turnLocked || state.gameOver || !state.turnNotice) return;
+  if (!state.turnLocked || state.gameOver || !state.turnNotice || currentPlayer()?.isAI) return;
   els.turnDialogTitle.textContent = `${state.turnNotice.playerName}, sinun vuorosi`;
   els.turnDialogReason.textContent = state.turnNotice.reason;
   els.turnDialogTotal.textContent = state.turnNotice.total;
@@ -581,8 +749,10 @@ function showWinnerDialog() {
 }
 
 function revealTurn() {
+  cancelAiTurn();
   state.turnLocked = false;
   state.turnNotice = null;
+  state.pendingAiSummary = [];
   render();
 }
 
@@ -618,7 +788,7 @@ function labelFor(card) {
 
 function cardElement(card, asButton = false) {
   const node = document.createElement(asButton ? "button" : "div");
-  node.className = `${asButton ? "card-button" : "mini-card"} ${card?.type === "wild" ? "card-wild" : ""} ${card?.kind ? `card-${card.kind}` : ""}`;
+  node.className = `${asButton ? "card-button" : "mini-card"} ${card?.type === "number" ? "card-number" : "card-wild"} ${card?.kind ? `card-${card.kind}` : ""}`;
   if (!card) {
     node.innerHTML = "<span class=\"card-type\">Tyhjä</span><strong class=\"card-value\">-</strong><span class=\"card-desc\">Ei korttia</span>";
     return node;
@@ -635,9 +805,9 @@ function render() {
   els.playersBoard.innerHTML = "";
   state.players.forEach((p, index) => {
     const tile = document.createElement("article");
-    tile.className = `player-tile ${index === state.currentIndex && !state.gameOver ? "active" : ""} ${p.eliminated ? "out" : ""}`;
+    tile.className = `player-tile ${p.isAI ? "ai" : ""} ${index === state.currentIndex && !state.gameOver ? "active" : ""} ${p.eliminated ? "out" : ""}`;
     tile.innerHTML = `
-      <span class="player-number" title="${escapeHtml(p.name)}">${index + 1}</span>
+      <span class="player-number" title="${escapeHtml(p.name)}${p.isAI ? " (AI)" : ""}">${index + 1}</span>
       <div class="life-row" aria-label="${p.lives} elämää">
         ${Array.from({ length: 5 }, (_, i) => `<span class="life ${i >= p.lives ? "lost" : ""}"></span>`).join("")}
       </div>
@@ -650,21 +820,25 @@ function render() {
   els.runningTotal.textContent = state.runningTotal;
   els.discardCard.replaceChildren(cardElement(state.discardPile.at(-1), false));
   els.directionLabel.textContent = state.direction === 1 ? "Myötäpäivään" : "Vastapäivään";
-  els.currentPlayerLabel.textContent = state.gameOver ? "-" : player?.name ?? "-";
-  els.turnTitle.textContent = state.gameOver ? `${winner.name} voitti` : `${player.name} pelaa`;
+  els.currentPlayerLabel.textContent = state.gameOver ? "-" : `${player?.name ?? "-"}${player?.isAI ? " (AI)" : ""}`;
+  els.turnTitle.textContent = state.gameOver ? `${winner.name} voitti` : `${player.name}${player.isAI ? " (AI)" : ""} pelaa`;
   els.stateText.textContent = state.gameOver
     ? `Peli päättyi. Voittaja on ${winner.name}.`
+    : player.isAI
+      ? `${player.name} on AI-pelaaja ja valitsee korttia automaattisesti.`
     : state.turnLocked
       ? `${player.name} on vuorossa. Käsi on piilossa, kunnes pelaaja aloittaa vuoronsa.`
       : `${player.name}: pelaa kortti tai menetä elämä, jos mikään kortti ei käy.`;
   els.handHint.textContent = state.gameOver
     ? "Peli on päättynyt."
+    : player.isAI
+      ? `${player.name} miettii siirtoa.`
     : state.turnLocked
       ? "Käsi on piilossa vuoronvaihdon ajan."
       : `Vuorossa ${player.name}.`;
 
   els.hand.innerHTML = "";
-  if (player && !state.gameOver && !state.turnLocked) {
+  if (player && !player.isAI && !state.gameOver && !state.turnLocked) {
     player.hand.forEach((card) => {
       const button = cardElement(card, true);
       button.type = "button";
@@ -672,14 +846,16 @@ function render() {
       button.addEventListener("click", () => playCard(card.id));
       els.hand.append(button);
     });
-  } else if (player && state.turnLocked && !state.gameOver) {
+  } else if (player && !state.gameOver) {
     const hidden = document.createElement("div");
     hidden.className = "hand-cover";
-    hidden.innerHTML = `<strong>${escapeHtml(player.name)} valmistautuu vuoroon</strong><span>Kortit näytetään vasta, kun vuoro aloitetaan.</span>`;
+    hidden.innerHTML = player.isAI
+      ? `<strong>${escapeHtml(player.name)} miettii siirtoa</strong><span>AI-pelaajan käsi pysyy piilossa.</span>`
+      : `<strong>${escapeHtml(player.name)} valmistautuu vuoroon</strong><span>Kortit näytetään vasta, kun vuoro aloitetaan.</span>`;
     els.hand.append(hidden);
   }
 
-  els.takeLifeButton.disabled = state.gameOver || state.turnLocked;
+  els.takeLifeButton.disabled = state.gameOver || state.turnLocked || player?.isAI;
   els.log.innerHTML = state.log
     .map((entry, index) => `<article class="log-entry"><span>${index === 0 ? "Uusin" : index + 1}</span><p>${escapeHtml(entry)}</p></article>`)
     .join("");
@@ -690,10 +866,13 @@ function render() {
 els.playerCount.addEventListener("change", buildNameFields);
 els.setupForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const names = [...els.nameFields.querySelectorAll("input")]
-    .map((input, index) => input.value.trim() || `Pelaaja ${index + 1}`);
+  const playerSettings = [...els.nameFields.querySelectorAll(".player-setup")]
+    .map((row, index) => ({
+      name: row.querySelector(".player-name-field input").value.trim() || `Pelaaja ${index + 1}`,
+      isAI: row.querySelector(".ai-toggle input").checked
+    }));
   els.setupDialog.close();
-  startGame(names);
+  startGame(playerSettings);
 });
 els.takeLifeButton.addEventListener("click", takeLifeForCurrentPlayer);
 els.turnForm.addEventListener("submit", (event) => {
@@ -702,11 +881,18 @@ els.turnForm.addEventListener("submit", (event) => {
   revealTurn();
 });
 els.newGameButton.addEventListener("click", () => {
+  cancelAiTurn();
   buildNameFields();
   els.setupDialog.showModal();
 });
-els.helpButton.addEventListener("click", () => els.rulesDialog.showModal());
+els.helpButton.addEventListener("click", () => {
+  cancelAiTurn();
+  els.rulesDialog.showModal();
+});
+els.rulesDialog.addEventListener("close", resumeCurrentTurn);
+els.setupDialog.addEventListener("close", resumeCurrentTurn);
 els.winnerNewGameButton.addEventListener("click", () => {
+  cancelAiTurn();
   els.winnerDialog.close();
   buildNameFields();
   els.setupDialog.showModal();
@@ -715,7 +901,11 @@ els.winnerNewGameButton.addEventListener("click", () => {
 buildNameFields();
 if (restoreGame()) {
   render();
-  window.setTimeout(showTurnDialog, 0);
+  if (currentPlayer().isAI) {
+    scheduleAiTurn();
+  } else {
+    window.setTimeout(showTurnDialog, 0);
+  }
 } else {
   els.setupDialog.showModal();
 }
